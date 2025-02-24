@@ -14,7 +14,8 @@ from utils.mail import send_mail
 from ebaysdk.trading import Connection
 from ebaysdk.shopping import Connection as Shopping
 import psycopg2
-
+from utils.profit_formula import profit_formula
+from utils.convertcurrency import getCurrentRate
 pan_id = 0
 
 def config():
@@ -51,6 +52,8 @@ def scrape_data(url,row):
             # raise err
         
         return data
+
+
 def get_ebay_title(ebay_url, ebay_setting) :
     if ebay_url == '':
         return False
@@ -299,46 +302,92 @@ def main():
                         
                         if price > 0 and abs(purchase_price - price) > int(varience):
                             
+                            with open(file=str(settings.BASE_DIR / 'utils/settings_attrs.txt'),  mode='r', encoding='utf-8') as f:
+                                    settings_attrs = f.read()
+
+                            res = json.loads(settings_attrs)
+                            rate = getCurrentRate('JPY')
+                            res['rate'] = str(rate)
+                            # print("test price upate", res)
+                            with open(file=str(settings.BASE_DIR / 'utils/settings_attrs.txt'),  mode='w', encoding='utf-8') as f:
+                                f.write(json.dumps(res, indent=4))
+                            # print(row[7],'data', data['purchase_price'])
                             
+                            profit = profit_formula(float(data['row'][8]), int(purchase_price), float(data['row'][11]), float(data['row'][12]), res)
+                            profit_rate = (profit / (float(data['row'][8]) * rate)) * 100
+                            # print(price, purchase_price, "test profit price", profit, pid)
+                            sql = """UPDATE product_product SET purchase_price = %s, profit = %s, profit_rate = %s WHERE id = %s"""
+                            cur.execute(sql, (purchase_price, profit, profit_rate, pid))
+                            conn.commit()
+                            print("test sql completed")
+                            # sql = "UPDATE product_product SET purchase_price = '" + purchase_price + "' WHERE id = '" + pid + "'"
+                            # print("test sql", sql)
+                            # cur.execute(sql)
+                            # conn.commit()
+                            # sql = "UPDATE product_product SET profit = '" + profit + "' WHERE id = '" + pid + "'"
+                            # cur.execute(sql)
+                            # conn.commit()
+                            # print("test sql", sql)
+                            # sql = "UPDATE product_product SET profit_rate = '" + profit_rate + "' WHERE id = '" + pid + "'"
+                            # cur.execute(sql)
+                            # conn.commit()
                             # add to product_maillist
-                            sql = "SELECT * FROM product_maillist WHERE product_id = '" + pid + "'"
+                            sql1= "SELECT * FROM product_maillist WHERE product_id = '" + pid + "'"
+                            cur.execute(sql1)
+                            conn.commit()
+                            if ebay_url != '':
+                                ebay_title=get_ebay_title(ebay_url, ebay_setting)
+                            mail_text += '【eBay】' + "\n"
+                            if ebay_title != False :
+                                mail_text += 'タイトル：' + ebay_title + "\n"
+                            if ebay_title == False :
+                                mail_text += 'タイトル：' + data['row'][3] + "\n"
+                            
+                            mail_text += 'URL: ' + data['row'][6] + "\n"
+                            mail_text += '【フリマ】' + "\n"
+                            mail_text += 'タイトル：' + data['product_name'] + "\n"
+                            mail_text += 'URL: ' + data['row'][5] + "\n"
+                            
+                            mail_text += str(price) + '円 → ' + str(purchase_price) + '円' + "\n"
+                            # print("mail",mail_text)
+                            
+                            sql = "INSERT INTO product_maillist(product_id) VALUES('" + pid + "')"
                             cur.execute(sql)
                             conn.commit()
-
-                            if cur.fetchone() == None:
-                                # print(row[7],'data', data['purchase_price'])
-                                if ebay_url != '':
-                                    ebay_title=get_ebay_title(ebay_url, ebay_setting)
-                                mail_text += '【eBay】' + "\n"
-                                if ebay_title != False :
-                                    mail_text += 'タイトル：' + ebay_title + "\n"
-                                if ebay_title == False :
-                                    mail_text += 'タイトル：' + data['row'][3] + "\n"
+                            # if cur.fetchone() == None:
                                 
-                                mail_text += 'URL: ' + data['row'][6] + "\n"
-                                mail_text += '【フリマ】' + "\n"
-                                mail_text += 'タイトル：' + data['product_name'] + "\n"
-                                mail_text += 'URL: ' + data['row'][5] + "\n"
+                                # if ebay_url != '':
+                                #     ebay_title=get_ebay_title(ebay_url, ebay_setting)
+                                # mail_text += '【eBay】' + "\n"
+                                # if ebay_title != False :
+                                #     mail_text += 'タイトル：' + ebay_title + "\n"
+                                # if ebay_title == False :
+                                #     mail_text += 'タイトル：' + data['row'][3] + "\n"
                                 
-                                mail_text += str(price) + '円 → ' + str(purchase_price) + '円' + "\n"
-                                # print("mail",mail_text)
+                                # mail_text += 'URL: ' + data['row'][6] + "\n"
+                                # mail_text += '【フリマ】' + "\n"
+                                # mail_text += 'タイトル：' + data['product_name'] + "\n"
+                                # mail_text += 'URL: ' + data['row'][5] + "\n"
                                 
-                                sql = "INSERT INTO product_maillist(product_id) VALUES('" + pid + "')"
-                                cur.execute(sql)
-                                conn.commit()
+                                # mail_text += str(price) + '円 → ' + str(purchase_price) + '円' + "\n"
+                            
+                                
+                                # sql = "INSERT INTO product_maillist(product_id) VALUES('" + pid + "')"
+                                # cur.execute(sql)
+                                # conn.commit()
                     
                                 # send_mail(FROM, PSW, TO, title, text)
 
-                        else:
-                            sql = "SELECT * FROM product_maillist WHERE product_id = '" + pid + "'"
-                            cur.execute(sql)
-                            conn.commit()
+                        # else:
+                        #     sql = "SELECT * FROM product_maillist WHERE product_id = '" + pid + "'"
+                        #     cur.execute(sql)
+                        #     conn.commit()
 
                             # remove from product_maillist
-                            if cur.fetchone() != None:
-                                sql = "DELETE FROM product_maillist WHERE product_id = '" + pid + "'"
-                                cur.execute(sql)
-                                conn.commit()
+                            # if cur.fetchone() != None:
+                            #     sql = "DELETE FROM product_maillist WHERE product_id = '" + pid + "'"
+                            #     cur.execute(sql)
+                            #     conn.commit()
                     except requests.ConnectTimeout:
                         print("ConnectTimeout.")                    
                 if mail_text != '' :
